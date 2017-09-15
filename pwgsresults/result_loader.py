@@ -25,6 +25,13 @@ class ResultLoader(object):
       tree_json = json.load(treesummf)
       self.dataset_name = tree_json['dataset_name']
       self.tree_summary = tree_json['trees']
+      self.params = tree_json['params']
+
+      if 'tree_densities' in tree_json:
+        self.tree_densities = tree_json['tree_densities']
+        self._convert_keys_to_ints(self.tree_densities)
+      else:
+        self.tree_densities = {}
 
     self._convert_keys_to_ints(self.tree_summary)
     for tree_idx, tree_features in self.tree_summary.items():
@@ -47,6 +54,11 @@ class ResultLoader(object):
 
   def load_all_mut_assignments(self):
     with zipfile.ZipFile(self._mutation_assignment_fn) as mutf:
-      for zinfo in mutf.infolist():
-        tree_idx = int(zinfo.filename.split('.')[0])
+      tree_indices = [int(i.filename.split('.')[0]) for i in mutf.infolist()]
+      tree_indices.sort()
+      for tree_idx in tree_indices:
         yield (tree_idx, self._load_assignments(mutf, tree_idx))
+
+  def load_all_mut_assignments_into_memory(self):
+    mutass = {I: M for (I, M) in self.load_all_mut_assignments()}
+    return mutass

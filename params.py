@@ -14,20 +14,27 @@ import subprocess as sp
 import util2 as u2
 import os
 
-# done for multi-sample
-def metropolis(tssb,iters=1000,std=0.01,burnin=0,n_ssms=0,n_cnvs=0,fin1='',fin2='',rseed=1, ntps=5):
+def get_c_fnames(tmp_dir):
+	def _make_c_fname(name):
+		fname = 'c_%s.txt' % (name)
+		return os.path.join(tmp_dir, fname)
 
+	FNAME_C_TREE = _make_c_fname('tree')
+	FNAME_C_DATA_STATES = _make_c_fname('data_states')
+	FNAME_C_PARAMS = _make_c_fname('params')
+	FNAME_C_MH_ARATIO = _make_c_fname('mh_ar')
+
+	return (FNAME_C_TREE, FNAME_C_DATA_STATES, FNAME_C_PARAMS, FNAME_C_MH_ARATIO)
+
+# done for multi-sample
+def metropolis(tssb,iters=1000,std=0.01,burnin=0,n_ssms=0,n_cnvs=0,fin1='',fin2='',rseed=1, ntps=5, tmp_dir='.'):
 	wts, nodes = tssb.get_mixture()
 
 	# file names
 	FNAME_SSM_DATA = fin1
 	FNAME_CNV_DATA = fin2
-	basename = os.path.basename(fin1).split('.')[0]
-	FNAME_C_TREE = 'c_tree_' + basename + '_' + str(rseed) + '.txt'
-	FNAME_C_DATA_STATES = 'c_data_states_' + basename + '_' + str(rseed) + '.txt'
-	FNAME_C_PARAMS = 'c_params_' + basename + '_' + str(rseed) + '.txt' ;
-	FNAME_C_MH_ARATIO = 'c_mh_ar_' + basename + '_' + str(rseed) + '.txt' ;
 	NTPS = str(ntps)
+	FNAME_C_TREE, FNAME_C_DATA_STATES, FNAME_C_PARAMS, FNAME_C_MH_ARATIO = get_c_fnames(tmp_dir)
 
 	## initialize the MH sampler###########
 	#for tp in arange(ntps): 
@@ -51,7 +58,7 @@ def metropolis(tssb,iters=1000,std=0.01,burnin=0,n_ssms=0,n_cnvs=0,fin1='',fin2=
 	TREE_HEIGHT = str(max([node.ht for node in nodes])+1)
 	
 	script_dir = os.path.dirname(os.path.realpath(__file__))
-	sp.call(['%s/mh.o' % script_dir, MH_ITR, MH_STD, N_SSM_DATA, N_CNV_DATA, NNODES, TREE_HEIGHT, FNAME_SSM_DATA, FNAME_CNV_DATA, FNAME_C_TREE, FNAME_C_DATA_STATES, FNAME_C_PARAMS,FNAME_C_MH_ARATIO, NTPS])
+	sp.check_call(['%s/mh.o' % script_dir, MH_ITR, MH_STD, N_SSM_DATA, N_CNV_DATA, NNODES, TREE_HEIGHT, FNAME_SSM_DATA, FNAME_CNV_DATA, FNAME_C_TREE, FNAME_C_DATA_STATES, FNAME_C_PARAMS,FNAME_C_MH_ARATIO, NTPS])
 	ar = str(loadtxt(FNAME_C_MH_ARATIO,dtype='string'))
 	update_tree_params(tssb,FNAME_C_PARAMS) # update the tree with the new parameters sampled using the c++ code
 	
@@ -112,48 +119,52 @@ def write_data_state(tssb,fname):
 		if not dat.cnv: continue # nothing to do for CNVs
 		if not dat.node: continue # todo: this won't happen
 		poss_n_genomes = dat.compute_n_genomes(0)
-		if poss_n_genomes[0][1] == 0:
-			nv = (False,True)
-		elif poss_n_genomes[1][1] == 0:
-			nv = (True,False)
-		else:
-			nv = (True,True)
 		for node in nodes:
 		
-			ssm_node = node.path[-1]
+			ssm_node = dat.node.path[-1]
 			mr_cnv = find_most_recent_cnv(dat,node)
 			ancestors = node.get_ancestors()
             
 			dat.state1 = '' # maternal
 			dat.state2 = '' # paternal
+			dat.state3 = '' # maternal
+			dat.state4 = '' # paternal
+
 			if (not ssm_node in ancestors) and (not mr_cnv):
 				dat.state1 += str(node.id) + ',' + str(2) + ',' + str(0) + ';'
-				dat.state2=dat.state1
+				dat.state2 += str(node.id) + ',' + str(2) + ',' + str(0) + ';'
+				dat.state3 += str(node.id) + ',' + str(2) + ',' + str(0) + ';'
+				dat.state4 += str(node.id) + ',' + str(2) + ',' + str(0) + ';'
 			elif ssm_node in ancestors and (not mr_cnv):
 				dat.state1 += str(node.id) + ',' + str(1) + ',' + str(1) + ';'
-				dat.state2=dat.state1
+				dat.state2 += str(node.id) + ',' + str(1) + ',' + str(1) + ';'
+				dat.state3 += str(node.id) + ',' + str(1) + ',' + str(1) + ';'
+				dat.state4 += str(node.id) + ',' + str(1) + ',' + str(1) + ';'
 			elif (not ssm_node in ancestors) and mr_cnv:
 				dat.state1 += str(node.id) + ',' + str(mr_cnv[1]+mr_cnv[2]) + ',' + str(0) + ';'
-				dat.state2=dat.state1
+				dat.state2 += str(node.id) + ',' + str(mr_cnv[1]+mr_cnv[2]) + ',' + str(0) + ';'
+				dat.state3 += str(node.id) + ',' + str(mr_cnv[1]+mr_cnv[2]) + ',' + str(0) + ';'
+				dat.state4 += str(node.id) + ',' + str(mr_cnv[1]+mr_cnv[2]) + ',' + str(0) + ';'
 			elif ssm_node in ancestors and mr_cnv:
+				dat.state3 += str(node.id) + ',' + str(max(0,mr_cnv[1]+mr_cnv[2]-1)) + ',' + str(min(1,mr_cnv[1]+mr_cnv[2])) + ';'
+				dat.state4 += str(node.id) + ',' + str(max(0,mr_cnv[1]+mr_cnv[2]-1)) + ',' + str(min(1,mr_cnv[1]+mr_cnv[2])) + ';'
 				if ssm_node in mr_cnv[0].node.get_ancestors():
-					if nv == (False,True):
-						dat.state2 += str(node.id) + ',' + str(mr_cnv[2]) + ',' + str(mr_cnv[1]) + ';' # paternal
-						dat.state1=dat.state2
-					elif nv == (True, False):
-						dat.state1 += str(node.id) + ',' + str(mr_cnv[1]) + ',' + str(mr_cnv[2]) + ';' # maternal
-						dat.state2 = dat.state1
-					else:
-						dat.state1 += str(node.id) + ',' + str(mr_cnv[1]) + ',' + str(mr_cnv[2]) + ';' # maternal
-						dat.state2 += str(node.id) + ',' + str(mr_cnv[2]) + ',' + str(mr_cnv[1]) + ';' # paternal
-					
+					dat.state1 += str(node.id) + ',' + str(mr_cnv[1]) + ',' + str(mr_cnv[2]) + ';' # maternal
+					dat.state2 += str(node.id) + ',' + str(mr_cnv[2]) + ',' + str(mr_cnv[1]) + ';' # paternal
 				else:
 					dat.state1 += str(node.id) + ',' + str(max(0,mr_cnv[1]+mr_cnv[2]-1)) + ',' + str(min(1,mr_cnv[1]+mr_cnv[2])) + ';'
-					dat.state2 = dat.state1 
+					dat.state2 += str(node.id) + ',' + str(max(0,mr_cnv[1]+mr_cnv[2]-1)) + ',' + str(min(1,mr_cnv[1]+mr_cnv[2])) + ';'
 			else:
 				print "PANIC"
 			
-			fh.write(str(dat.id[1:]) + '\t' + dat.state1.strip(';') + '\t' + dat.state2.strip(';'))
+			if poss_n_genomes[0][1] == 0:
+				dat.state1 = dat.state2
+			elif poss_n_genomes[1][1] == 0:
+				dat.state2 = dat.state1
+			if len(poss_n_genomes) == 2:
+				dat.state3 = dat.state1
+				dat.state4 = dat.state2
+			fh.write(str(dat.id[1:]) + '\t' + dat.state1.strip(';') + '\t' + dat.state2.strip(';') +'\t' + dat.state3.strip(';') +'\t' + dat.state4.strip(';') +'\t')
 			fh.write('\n')
 		
 	fh.flush()

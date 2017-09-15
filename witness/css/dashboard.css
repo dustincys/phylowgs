@@ -35,6 +35,7 @@ body {
 }
 .secondary-sidebar {
   display: none;
+  min-height: 100%;
 }
 @media (min-width: 768px) {
   .main-sidebar {
@@ -71,7 +72,7 @@ body {
     bottom: 0;
   }
 
-  #tree-list {
+  #tree-list, #cluster-list {
     top: 51px;
     bottom: 0;
   }
@@ -136,15 +137,15 @@ body {
   display: none;
 }
 
-#trees .active, #trees .active td {
-  background-color: #428bca;
-  color: #fff;
+.secondary-sidebar .active, .secondary-sidebar .active td {
+  background-color: #428bca !important;
+  color: #fff !important;
 }
 
-#trees tr:hover {
-  background-color: white;
+.secondary-sidebar tr:hover {
+  background-color: white !important;
 }
 
-#trees td, #trees th {
+.secondary-sidebar td, .secondary-sidebar th {
   cursor: pointer;
 }

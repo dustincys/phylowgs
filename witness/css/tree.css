@@ -1,7 +1,10 @@
-.node circle {
-  cursor: pointer;
+.node circle, .population circle {
   fill: #428bca;
   stroke-width: 1.5px;
+}
+
+.node circle, .node text {
+  cursor: pointer;
 }
 
 .node text {
@@ -9,8 +12,10 @@
   fill: white;
 }
 
-path.link {
+.link {
   fill: none;
-  stroke: #ccc;
-  stroke-width: 1.5px;
+}
+
+.bastard-subtree circle {
+  fill: #ca4242;
 }

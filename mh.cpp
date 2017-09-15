@@ -263,7 +263,7 @@ void load_cnv_data(char fname[],struct datum *data, struct config conf){
 		if (id==-1){id+=1;continue;}
 		istringstream iss(line);
 		ctr=0;
-		while(getline(iss,token,'\t')){
+		while(getline(iss,token,'\t') && ctr <= 3){
 			if(ctr==0){
 				data[did].id=did;
 			}
@@ -420,6 +420,40 @@ void load_data_states(char fname[], struct datum* data, struct node* nodes, stru
 							st8.nv = atoi(token2.c_str());
 					}
 					dat->states2.push_back(st8);
+				}
+			}
+			else if(ctr==3){			
+				istringstream iss1(token);
+				while(getline(iss1,token1,';')){					
+					struct state st8;
+					istringstream iss2(token1);
+					for(int i=0;i<3;i++){
+						getline (iss2,token2,',');
+						if(i==0)
+							st8.nd = &nodes[node_id_map[atoi(token2.c_str())]];
+						else if(i==1)
+							st8.nr = atoi(token2.c_str());
+						else if(i==2)
+							st8.nv = atoi(token2.c_str());
+					}
+					dat->states3.push_back(st8);
+				}
+			}
+			else if(ctr==4){			
+				istringstream iss1(token);
+				while(getline(iss1,token1,';')){					
+					struct state st8;
+					istringstream iss2(token1);
+					for(int i=0;i<3;i++){
+						getline (iss2,token2,',');
+						if(i==0)
+							st8.nd = &nodes[node_id_map[atoi(token2.c_str())]];
+						else if(i==1)
+							st8.nr = atoi(token2.c_str());
+						else if(i==2)
+							st8.nv = atoi(token2.c_str());
+					}
+					dat->states4.push_back(st8);
 				}
 			}
 			ctr+=1;

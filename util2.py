@@ -10,6 +10,11 @@ from scipy.special import gammaln
 from math import exp, log
 
 import csv
+# Allow long lines in .cnv files, which can potentially list thousands of SSMs
+# in one CNV. According to http://stackoverflow.com/a/15063941, this value can
+# be as much as a C long. C longs are guaranteed to accommodate at least this
+# value, which is a signed 32-bit int.
+csv.field_size_limit(2147483647)
 
 from data import Datum
 
@@ -31,12 +36,25 @@ def logsumexp(X, axis=None):
     maxes = numpy.max(X, axis=axis)
     return numpy.log(numpy.sum(numpy.exp(X - maxes), axis=axis)) + maxes
 
+def parse_physical_cnvs(pcnvs):
+    physical_cnvs = []
+
+    for physical_cnv in pcnvs.split(';'):
+	fields = physical_cnv.split(',')
+	cnv = dict([F.split('=', 1) for F in fields])
+	for key in ('start', 'end', 'major_cn', 'minor_cn'):
+	    cnv[key] = int(cnv[key])
+	cnv['cell_prev'] = [float(C) for C in cnv['cell_prev'].split('|')]
+	physical_cnvs.append(cnv)
+
+    return physical_cnvs
+
 def load_data(fname1,fname2):
 	# load ssm data
 	reader = csv.DictReader(open(fname1,'rU'), delimiter='\t')
 	data = dict()  
 	for row in reader:
-		name = row['gene'] 
+		name = row['gene']
 		id = row['id']
 		a = [int(x) for x in row['a'].split(',')]
 		d = [int(x) for x in row['d'].split(',')]
@@ -52,31 +70,27 @@ def load_data(fname1,fname2):
 	n_cnvs = 0
 	
 	# load cnv data
-	try:
-		reader = csv.DictReader(open(fname2,'rU'), delimiter='\t')
-		
-		
-		for row in reader:
-			name=row['cnv'] 
-			id = row['cnv'] 
-			a = [int(x) for x in row['a'].split(',')]
-			d = [int(x) for x in row['d'].split(',')]
-		
-			data[id] = Datum(name, id, a, d,0.999,0.5)
-				
-			ssms = row['ssms']
-			if ssms is None: continue
-			if len(ssms)>0:
-				for ssm in ssms.split(';'):
-					tok = ssm.split(',')
-					data[tok[0]].cnv.append((data[id],int(tok[1]),int(tok[2])))
-			
-		n_cnvs = len(data.keys())-n_ssms
+	reader = csv.DictReader(open(fname2,'rU'), delimiter='\t')
+	cnv_logical_physical_mapping = {}
+	for row in reader:
+		name=row['cnv']
+		id = row['cnv']
+		cnv_logical_physical_mapping[id] = parse_physical_cnvs(row['physical_cnvs'])
+		a = [int(x) for x in row['a'].split(',')]
+		d = [int(x) for x in row['d'].split(',')]
 
-	except Exception as e:
-		pass
+		data[id] = Datum(name, id, a, d,0.999,0.5)
+
+		ssms = row['ssms']
+		if ssms is None: continue
+		if len(ssms)>0:
+			for ssm in ssms.split(';'):
+				tok = ssm.split(',')
+				data[tok[0]].cnv.append((data[id],int(tok[1]),int(tok[2])))
+
+	n_cnvs = len(data.keys())-n_ssms
 		
-	return [data[key] for key in data.keys()], n_ssms, n_cnvs
+	return [data[key] for key in data.keys()], n_ssms, n_cnvs, cnv_logical_physical_mapping
 	
 #################################################
 ## some useful functions to get some info about,
@@ -165,6 +179,13 @@ class BackupManager(object):
 	for fn, backup_fn in zip(self._filenames, self._backup_filenames):
 	    shutil.copy2(backup_fn, fn)
 
+    def remove_backup(self):
+	for backup_fn in self._backup_filenames:
+	    try:
+		os.remove(backup_fn)
+	    except OSError:
+		pass
+
 class StateManager(object):
     default_last_state_fn = 'state.last.pickle'
     default_initial_state_fn = 'state.initial.pickle'
@@ -182,6 +203,10 @@ class StateManager(object):
 
     def load_state(self):
 	with open(self._last_state_fn) as state_file:
+	    return pickle.load(state_file)
+
+    def load_initial_state(self):
+	with open(self._initial_state_fn) as state_file:
 	    return pickle.load(state_file)
 
     def write_initial_state(self, state):
@@ -210,6 +235,11 @@ class TreeWriter(object):
 	    # something we want.
 	    rm_safely(self._archive_fn)
 
+    def add_extra_file(self, filename, data):
+	    self._open_archive()
+	    self._archive.writestr(filename, data)
+	    self._close_archive()
+
     def _ensure_archive_is_valid(self):
 	with zipfile.ZipFile(self._archive_fn) as zipf:
 	    if zipf.testzip() is not None:
@@ -221,17 +251,14 @@ class TreeWriter(object):
     def _close_archive(self):
 	self._archive.close()
 
-    def _write_tree(self, tree, tree_fn):
-	serialized = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+    def write_trees(self, serialized_trees):
 	self._open_archive()
-	self._archive.writestr(tree_fn, serialized)
+	for serialized_tree, idx, llh in serialized_trees:
+	    is_burnin = idx < 0
+	    prefix = is_burnin and 'burnin' or 'tree'
+	    treefn = '%s_%s_%s' % (prefix, idx, llh)
+	    self._archive.writestr(treefn, serialized_tree)
 	self._close_archive()
-
-    def write_tree(self, tree, llh, idx):
-	self._write_tree(tree, 'tree_%s_%s' % (idx, llh))
-
-    def write_burnin_tree(self, burnin_tree, idx):
-	self._write_tree(burnin_tree, 'burnin_%s' % idx)
 
 class TreeReader(object):
     def __init__(self, archive_fn):
@@ -255,6 +282,9 @@ class TreeReader(object):
 	    idx = self._extract_burnin_idx(info)
 	    assert len(burnin_info) + idx == len(self._burnin_trees)
 	    self._burnin_trees.append((idx, info))
+
+    def read_extra_file(self, filename):
+	return self._archive.read(filename)
 
     def num_trees(self):
 	return len(self._trees)
